@@ -1,0 +1,10 @@
+#!/bin/bash
+# rca-focus <regex de classe> <commande…> — met au premier plan, sinon lance.
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+pattern="$1"; shift
+addr="$(hyprctl clients -j | jq -r --arg p "$pattern" '[.[] | select((.class | test($p)) or (.initialClass | test($p)))][0].address // empty')"
+if [[ -n "$addr" ]]; then
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+else
+  rca_launch "$@"
+fi

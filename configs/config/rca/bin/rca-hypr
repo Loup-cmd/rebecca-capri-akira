@@ -1,0 +1,153 @@
+#!/bin/bash
+# rca-hypr <action> — actions de fenêtres et d'écran (remplace omarchy-hyprland-*).
+#   pop | close-all | tiled-fullscreen | transparency | gaps | square | zen
+#   width save|restore | layout next|prev | scale up|down | internal toggle
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+set -uo pipefail
+
+FLAGS="$RCA_STATE/flags"
+mkdir -p "$FLAGS"
+
+dsp() { hyprctl dispatch "$1" >/dev/null 2>&1; }
+lua() { hyprctl eval "$1" >/dev/null 2>&1; }
+
+# Bascule un drapeau ; renvoie "on" ou "off".
+flag() {
+  if [[ -f "$FLAGS/$1" ]]; then rm -f "$FLAGS/$1"; echo off
+  else touch "$FLAGS/$1"; echo on; fi
+}
+
+active() { hyprctl activewindow -j 2>/dev/null; }
+
+case "${1:-}" in
+  pop)
+    win="$(active)"
+    addr="$(jq -r '.address // empty' <<<"$win")"
+    [[ -n "$addr" ]] || exit 0
+    w="address:$addr"
+    if [[ "$(jq -r .pinned <<<"$win")" == true ]]; then
+      dsp "hl.dsp.window.pin({ window = \"$w\" })"
+      dsp "hl.dsp.window.float({ window = \"$w\", action = \"toggle\" })"
+      dsp "hl.dsp.window.tag({ window = \"$w\", tag = \"-pop\" })"
+    else
+      [[ "$(jq -r .floating <<<"$win")" == true ]] || dsp "hl.dsp.window.float({ window = \"$w\", action = \"toggle\" })"
+      dsp "hl.dsp.window.resize({ window = \"$w\", x = 1100, y = 720 })"
+      dsp "hl.dsp.window.center({ window = \"$w\" })"
+      dsp "hl.dsp.window.pin({ window = \"$w\" })"
+      dsp "hl.dsp.window.alter_zorder({ window = \"$w\", mode = \"top\" })"
+      dsp "hl.dsp.window.tag({ window = \"$w\", tag = \"+pop\" })"
+    fi
+    ;;
+
+  close-all)
+    hyprctl clients -j | jq -r '.[].address' | while read -r addr; do
+      dsp "hl.dsp.window.close({ window = \"address:$addr\" })"
+    done
+    dsp 'hl.dsp.focus({ workspace = 1 })'
+    ;;
+
+  tiled-fullscreen)
+    state="$(active | jq -r '.fullscreenClient // 0')"
+    if [[ "$state" == 2 ]]; then
+      dsp 'hl.dsp.window.fullscreen_state({ internal = 0, client = 0 })'
+    else
+      dsp 'hl.dsp.window.fullscreen_state({ internal = 0, client = 2 })'
+    fi
+    ;;
+
+  transparency)
+    addr="$(active | jq -r '.address // empty')"
+    [[ -n "$addr" ]] || exit 0
+    w="address:$addr"
+    if [[ "$(hyprctl getprop "$w" opacity 2>/dev/null)" == 1 ]]; then
+      dsp "hl.dsp.window.tag({ window = \"$w\", tag = \"+transparent\" })"
+      dsp "hl.dsp.window.set_prop({ window = \"$w\", prop = \"opaque\", value = \"false\" })"
+    else
+      dsp "hl.dsp.window.set_prop({ window = \"$w\", prop = \"opaque\", value = \"toggle\" })"
+    fi
+    ;;
+
+  gaps)
+    if [[ "$(flag nogaps)" == on ]]; then
+      lua 'hl.config({ general = { gaps_in = 0, gaps_out = 0 } })'
+    else
+      lua 'hl.config({ general = { gaps_in = 2, gaps_out = 3 } })'
+    fi
+    ;;
+
+  square)
+    if [[ "$(flag square)" == on ]]; then
+      lua 'hl.config({ layout = { single_window_aspect_ratio = { 1, 1 } } })'
+    else
+      lua 'hl.config({ layout = { single_window_aspect_ratio = { 0, 0 } } })'
+    fi
+    ;;
+
+  zen)
+    # Bureau plein écran : ni marges, ni bordures, ni pupitre.
+    if [[ "$(flag zen)" == on ]]; then
+      lua 'hl.config({ general = { gaps_in = 0, gaps_out = 0, border_size = 0 } })'
+      rca_qs bar zen true
+    else
+      lua 'hl.config({ general = { gaps_in = 2, gaps_out = 3, border_size = 2 } })'
+      rca_qs bar zen false
+    fi
+    ;;
+
+  width)
+    win="$(active)"
+    key="$(jq -r '"\(.workspace.id)-\(.class)"' <<<"$win" | tr '/ ' '__')"
+    case "${2:-}" in
+      save)
+        jq -r '.size[0]' <<<"$win" > "$FLAGS/width-$key"
+        rca_notify -t 1500 "Largeur enregistrée" "$(cat "$FLAGS/width-$key") px"
+        ;;
+      restore)
+        [[ -f "$FLAGS/width-$key" ]] || exit 0
+        want="$(cat "$FLAGS/width-$key")"
+        have="$(jq -r '.size[0]' <<<"$win")"
+        dsp "hl.dsp.window.resize({ x = $(( want - have )), y = 0, relative = true })"
+        ;;
+    esac
+    ;;
+
+  layout)
+    layouts=(dwindle master scrolling)
+    current="$(hyprctl getoption general:layout -j 2>/dev/null | jq -r '.str // empty')"
+    i=0
+    for idx in "${!layouts[@]}"; do [[ "${layouts[$idx]}" == "$current" ]] && i=$idx; done
+    if [[ "${2:-next}" == prev ]]; then i=$(( (i + 2) % 3 )); else i=$(( (i + 1) % 3 )); fi
+    lua "hl.config({ general = { layout = \"${layouts[$i]}\" } })"
+    rca_notify -t 1200 "Disposition" "${layouts[$i]}"
+    ;;
+
+  scale)
+    scales=(1 1.25 1.6 2)
+    mon="$(hyprctl monitors -j | jq -c '.[] | select(.focused)')"
+    name="$(jq -r .name <<<"$mon")"
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || exit 1
+    cur="$(jq -r .scale <<<"$mon")"
+    i=0
+    for idx in "${!scales[@]}"; do
+      awk -v a="${scales[$idx]}" -v b="$cur" 'BEGIN { exit !(a - b < 0.01 && b - a < 0.01) }' && i=$idx
+    done
+    if [[ "${2:-up}" == up ]]; then (( i < ${#scales[@]} - 1 )) && i=$(( i + 1 ))
+    else (( i > 0 )) && i=$(( i - 1 )); fi
+    lua "hl.monitor({ output = \"$name\", mode = \"preferred\", position = \"auto\", scale = ${scales[$i]} })"
+    ;;
+
+  internal)
+    count="$(hyprctl monitors -j | jq length)"
+    if [[ "$(flag internal-off)" == on ]]; then
+      if (( count < 2 )); then rm -f "$FLAGS/internal-off"; exit 0; fi
+      lua 'hl.monitor({ output = "eDP-1", disabled = true })'
+    else
+      lua 'hl.monitor({ output = "eDP-1", mode = "preferred", position = "auto", scale = 1.25 })'
+    fi
+    ;;
+
+  *)
+    sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac

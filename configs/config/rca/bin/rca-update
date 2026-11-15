@@ -1,0 +1,15 @@
+#!/bin/bash
+# rca-update count | run — mises à jour (dépôts + AUR).
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+case "${1:-count}" in
+  count)
+    repo="$(checkupdates 2>/dev/null | wc -l)"
+    aur=0
+    command -v yay >/dev/null && aur="$(yay -Qua 2>/dev/null | wc -l)"
+    echo $(( repo + aur ))
+    ;;
+  run)
+    rca_launch kitty --class rca.float --title "Mise à jour" -e bash -c \
+      'if command -v yay >/dev/null; then yay -Syu; else sudo pacman -Syu; fi; echo; read -rp "Terminé — Entrée pour fermer. "'
+    ;;
+esac

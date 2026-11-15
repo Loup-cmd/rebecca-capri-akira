@@ -1,0 +1,58 @@
+#!/bin/bash
+# rca-freeze-keymap <ricing> — rend un autre ricing indépendant d'Omarchy.
+#
+# hypr-switch lui fournit la keymap Omarchy par un fichier généré à chaque
+# bascule, à partir des défauts d'Omarchy : sans Omarchy, la génération échoue.
+# Tant qu'Omarchy est là, ce script la génère une dernière fois, la range dans
+# le ricing (hypr/omarchy-keymap.frozen.lua) et adapte son hyprland.lua : avec
+# Omarchy, rien ne change ; sans Omarchy, il charge la copie figée et trouve
+# les commandes omarchy-* de remplacement (config/rca/compat).
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+
+name="${1:?usage: rca-freeze-keymap <ricing>}"
+hypr="$HOME/.hypr-switch/shells/$name/configs/config/hypr"
+main="$hypr/hyprland.lua"
+generated="$HOME/.hypr-switch/keymap/omarchy-keymap.lua"
+compat="$HOME/.hypr-switch/shells/$RCA_RICING/configs/config/rca/compat"
+[[ -f "$main" ]] || { echo "pas de config Hyprland Lua pour '$name'" >&2; exit 1; }
+grep -qF "hypr-switch: Omarchy keymap overlay" "$main" || { echo "'$name' n'utilise pas la keymap Omarchy générée : rien à faire." >&2; exit 0; }
+
+if [[ -f /usr/share/omarchy/default/hypr/bootstrap.lua ]]; then
+  lua -E "$HOME/.local/bin/omarchy-keymap-generate" "$name"
+  cp "$generated" "$hypr/omarchy-keymap.frozen.lua"
+  # La keymap du ricing actif est remise en place.
+  current="$(cat "$HOME/.hypr-switch/.current_shell" 2>/dev/null || echo default)"
+  [[ "$current" == "$name" || "$current" == default ]] || lua -E "$HOME/.local/bin/omarchy-keymap-generate" "$current" >/dev/null || true
+  echo "keymap figée : $hypr/omarchy-keymap.frozen.lua ($(grep -c 'hl.bind' "$hypr/omarchy-keymap.frozen.lua") raccourcis)"
+elif [[ ! -f "$hypr/omarchy-keymap.frozen.lua" ]]; then
+  echo "Omarchy est déjà désinstallé et aucune keymap figée n'existe pour '$name'." >&2
+  exit 1
+fi
+
+if grep -qF "omarchy-keymap.frozen.lua" "$main"; then
+  echo "hyprland.lua déjà adapté."
+  exit 0
+fi
+backup="$HOME/.local/share/hypr-switch-backups/$name-hyprland.lua.$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$(dirname "$backup")" && cp "$main" "$backup"
+awk -v compat="$compat" '
+  /local overlay = \(os\.getenv\("HOME"\) or ""\) \.\. "\/\.hypr-switch\/keymap\/omarchy-keymap\.lua"/ && !done {
+    print
+    print "  -- rca : sans Omarchy, keymap figée du ricing et commandes de remplacement."
+    print "  local omarchy = io.open(\"/usr/share/omarchy/default/hypr/bootstrap.lua\", \"r\")"
+    print "  if omarchy then"
+    print "    omarchy:close()"
+    print "  else"
+    print "    overlay = (os.getenv(\"HOME\") or \"\") .. \"/.config/hypr/omarchy-keymap.frozen.lua\""
+    print "    local compat = \"" compat "\""
+    print "    local path = os.getenv(\"PATH\") or \"/usr/local/bin:/usr/bin\""
+    print "    if not path:find(compat, 1, true) then hl.env(\"PATH\", compat .. \":\" .. path) end"
+    print "  end"
+    done = 1
+    next
+  }
+  { print }
+' "$backup" > "$main"
+grep -qF "omarchy-keymap.frozen.lua" "$main" || { cp "$backup" "$main"; echo "bloc keymap introuvable dans $main : fichier laissé tel quel." >&2; exit 1; }
+echo "hyprland.lua adapté (sauvegarde : $backup)"

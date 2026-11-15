@@ -1,0 +1,256 @@
+#!/bin/bash
+# rca-theme — thème jour/nuit Rebecca piloté par le soleil.
+#
+#   rca-theme auto              applique la période du moment (lever/coucher du soleil)
+#   rca-theme light|dark        force une période jusqu'au prochain lever/coucher
+#   rca-theme toggle            inverse la période courante (même règle)
+#   rca-theme apply [mode]      régénère tout pour le mode courant (ou donné)
+#   rca-theme wallpaper <fichier|next|prev>   fond de la période courante
+#   rca-theme nightlight on|off|toggle|status   veilleuse de la période sombre
+#   rca-theme sun               heures de lever et de coucher aujourd'hui
+#   rca-theme status            état courant (JSON)
+#   rca-theme daemon            vérifie chaque minute (lancé au login)
+
+set -uo pipefail
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+
+THEME_DIR="$RCA_STATE/theme"
+MODE_FILE="$RCA_STATE/mode"
+OVERRIDE_FILE="$RCA_STATE/override"
+
+# Lever et coucher du soleil, en minutes depuis minuit (heure locale).
+# Algorithme du NOAA (almanach), précision de l'ordre de la minute.
+sun_times() {
+  local lat lon doy offset
+  lat="$(rca_setting latitude 48.8566)"
+  lon="$(rca_setting longitude 2.3522)"
+  doy="$(date +%-j)"
+  offset="$(date +%z)"
+  awk -v lat="$lat" -v lon="$lon" -v N="$doy" -v z="$offset" '
+    function rad(d) { return d * 3.141592653589793 / 180 }
+    function deg(r) { return r * 180 / 3.141592653589793 }
+    function mod(a, b) { return a - b * int(a / b) + (a < 0 ? b : 0) }
+    function tan(x) { return sin(x) / cos(x) }
+    function asin(x) { return atan2(x, sqrt(1 - x * x)) }
+    function acos(x) { return atan2(sqrt(1 - x * x), x) }
+    function event(rising,    t, M, L, RA, Lq, RAq, sinDec, cosDec, cosH, H, T, UT) {
+      t = N + ((rising ? 6 : 18) - lon / 15) / 24
+      M = 0.9856 * t - 3.289
+      L = mod(M + 1.916 * sin(rad(M)) + 0.020 * sin(rad(2 * M)) + 282.634, 360)
+      RA = mod(deg(atan2(0.91764 * sin(rad(L)), cos(rad(L)))), 360)
+      Lq = int(L / 90) * 90; RAq = int(RA / 90) * 90
+      RA = (RA + Lq - RAq) / 15
+      sinDec = 0.39782 * sin(rad(L)); cosDec = cos(asin(sinDec))
+      cosH = (cos(rad(90.833)) - sinDec * sin(rad(lat))) / (cosDec * cos(rad(lat)))
+      if (cosH > 1) return -1
+      if (cosH < -1) return -2
+      H = rising ? 360 - deg(acos(cosH)) : deg(acos(cosH))
+      T = H / 15 + RA - 0.06571 * t - 6.622
+      UT = mod(T - lon / 15, 24)
+      return int(mod(UT + tz, 24) * 60 + 0.5)
+    }
+    BEGIN {
+      sign = substr(z, 1, 1) == "-" ? -1 : 1
+      tz = sign * (substr(z, 2, 2) + substr(z, 4, 2) / 60)
+      print event(1), event(0)
+    }'
+}
+
+now_minutes() { echo $(( 10#$(date +%H) * 60 + 10#$(date +%M) )); }
+
+sun_period() {
+  local rise set now
+  read -r rise set < <(sun_times)
+  now="$(now_minutes)"
+  if (( rise < 0 || set < 0 )); then
+    # Jour ou nuit polaire : repli sur 8 h – 20 h.
+    rise=480; set=1200
+  fi
+  if (( now >= rise && now < set )); then echo light; else echo dark; fi
+}
+
+# Epoch du prochain lever ou coucher : fin d'un forçage manuel.
+next_boundary() {
+  local rise set now midnight target
+  read -r rise set < <(sun_times)
+  now="$(now_minutes)"
+  midnight="$(date -d 'today 00:00' +%s)"
+  if (( now < rise )); then target=$rise
+  elif (( now < set )); then target=$set
+  else target=$(( rise + 1440 )); fi
+  echo $(( midnight + target * 60 ))
+}
+
+current_mode() { cat "$MODE_FILE" 2>/dev/null || echo light; }
+
+wanted_mode() {
+  if [[ -f "$OVERRIDE_FILE" ]]; then
+    local mode until
+    read -r mode until < "$OVERRIDE_FILE"
+    if [[ -n "${until:-}" ]] && (( $(date +%s) < until )); then
+      echo "$mode"; return
+    fi
+    rm -f "$OVERRIDE_FILE"
+  fi
+  sun_period
+}
+
+wallpaper_for() {
+  local mode="$1" chosen
+  chosen="$(cat "$RCA_STATE/wallpaper-$mode" 2>/dev/null)"
+  if [[ -n "$chosen" && -f "$chosen" ]]; then echo "$chosen"; return; fi
+  find "$RCA_HOME/wallpapers/$mode" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | sort | head -n1
+}
+
+render_all() {
+  local mode="$1" palette="$RCA_HOME/palettes/$1.toml" tpl
+  mkdir -p "$THEME_DIR"
+  for tpl in "$RCA_HOME"/templates/*.tpl; do
+    lua "$RCA_BIN/rca-render" "$palette" "$tpl" "$THEME_DIR/$(basename "${tpl%.tpl}")"
+  done
+  cp "$palette" "$THEME_DIR/colors.toml"
+}
+
+apply_gtk() {
+  local mode="$1"
+  if rca_owns gtk-3.0; then cp "$THEME_DIR/gtk.css" "$HOME/.config/gtk-3.0/rca-colors.css"; fi
+  if rca_owns gtk-4.0; then cp "$THEME_DIR/gtk.css" "$HOME/.config/gtk-4.0/rca-colors.css"; fi
+  if rca_owns qt6ct; then
+    mkdir -p "$HOME/.config/qt6ct/colors"
+    cp "$THEME_DIR/qt6ct-colors.conf" "$HOME/.config/qt6ct/colors/rca.conf"
+  fi
+  [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && rca_active || return 0
+  if [[ "$mode" == dark ]]; then
+    gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+    gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3-dark
+    gsettings set org.gnome.desktop.interface icon-theme "$(rca_setting icons_dark Papirus-Dark)"
+  else
+    gsettings set org.gnome.desktop.interface color-scheme prefer-light
+    gsettings set org.gnome.desktop.interface gtk-theme adw-gtk3
+    gsettings set org.gnome.desktop.interface icon-theme "$(rca_setting icons_light Papirus-Light)"
+  fi
+}
+
+apply_firefox() {
+  local profile
+  for profile in "$HOME"/.config/mozilla/firefox/*/ "$HOME"/.mozilla/firefox/*/; do
+    [[ -f "$profile/chrome/.rca" ]] && cp "$THEME_DIR/firefox.css" "$profile/chrome/rca-colors.css"
+  done
+  return 0
+}
+
+apply_nightlight() {
+  local mode="$1"
+  pgrep -x hyprsunset >/dev/null || return 0
+  if [[ "$mode" == dark && "$(rca_setting nightlight on)" == on && ! -f "$RCA_STATE/nightlight-off" ]]; then
+    hyprctl hyprsunset temperature "$(rca_setting night_temperature 4300)" >/dev/null 2>&1
+  else
+    hyprctl hyprsunset identity >/dev/null 2>&1
+  fi
+}
+
+apply() {
+  local mode="${1:-$(current_mode)}" wallpaper
+  [[ "$mode" == light || "$mode" == dark ]] || { echo "mode inconnu : $mode" >&2; exit 1; }
+
+  # Le fond d'abord : le shell recharge l'image quand palette.json change.
+  wallpaper="$(wallpaper_for "$mode")"
+  [[ -n "$wallpaper" ]] && ln -sfn "$wallpaper" "$RCA_STATE/wallpaper"
+  echo "$mode" > "$MODE_FILE"
+  render_all "$mode"
+
+  apply_gtk "$mode"
+  apply_firefox
+
+  if rca_active; then
+    hyprctl eval "dofile('$THEME_DIR/hyprland.lua')" >/dev/null 2>&1 || true
+    apply_nightlight "$mode"
+  fi
+  pkill -USR1 -x kitty 2>/dev/null || true
+  pkill -USR2 -x btop 2>/dev/null || true
+  # Le shell relit palette.json tout seul (surveillance du fichier).
+}
+
+set_override() {
+  local mode="$1"
+  if [[ "$mode" == "$(sun_period)" ]]; then
+    rm -f "$OVERRIDE_FILE"
+  else
+    echo "$mode $(next_boundary)" > "$OVERRIDE_FILE"
+  fi
+  apply "$mode"
+}
+
+cycle_wallpaper() {
+  local mode dir step="$1" files current i n
+  mode="$(current_mode)"
+  dir="$RCA_HOME/wallpapers/$mode"
+  mapfile -t files < <(find "$dir" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort)
+  n=${#files[@]}
+  (( n > 0 )) || return 0
+  current="$(readlink "$RCA_STATE/wallpaper")"
+  for i in "${!files[@]}"; do [[ "${files[$i]}" == "$current" ]] && break; done
+  [[ "${files[$i]:-}" == "$current" ]] || i=0
+  i=$(( (i + step + n) % n ))
+  set_wallpaper "${files[$i]}"
+}
+
+set_wallpaper() {
+  local file mode
+  file="$(readlink -f "$1")"
+  [[ -f "$file" ]] || { echo "fichier introuvable : $1" >&2; exit 1; }
+  mode="$(current_mode)"
+  echo "$file" > "$RCA_STATE/wallpaper-$mode"
+  ln -sfn "$file" "$RCA_STATE/wallpaper"
+  rca_qs wallpaper reload
+}
+
+fmt() { printf '%02d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
+
+case "${1:-auto}" in
+  auto)
+    want="$(wanted_mode)"
+    if [[ "$want" != "$(current_mode)" || ! -f "$THEME_DIR/palette.json" || ! -e "$RCA_STATE/wallpaper" ]]; then apply "$want"; fi
+    ;;
+  light|dark) set_override "$1" ;;
+  toggle)
+    if [[ "$(current_mode)" == dark ]]; then set_override light; else set_override dark; fi
+    ;;
+  apply) apply "${2:-}" ;;
+  wallpaper)
+    case "${2:-}" in
+      next) cycle_wallpaper 1 ;;
+      prev) cycle_wallpaper -1 ;;
+      "") readlink "$RCA_STATE/wallpaper" ;;
+      *) set_wallpaper "$2" ;;
+    esac
+    ;;
+  nightlight)
+    case "${2:-status}" in
+      on) rm -f "$RCA_STATE/nightlight-off"; apply_nightlight "$(current_mode)" ;;
+      off) touch "$RCA_STATE/nightlight-off"; apply_nightlight "$(current_mode)" ;;
+      toggle) if [[ -f "$RCA_STATE/nightlight-off" ]]; then "$0" nightlight on; else "$0" nightlight off; fi ;;
+      status) [[ -f "$RCA_STATE/nightlight-off" || "$(rca_setting nightlight on)" != on ]] && echo off || echo on ;;
+    esac
+    ;;
+  sun)
+    read -r rise set < <(sun_times)
+    echo "lever $(fmt "$rise") · coucher $(fmt "$set")"
+    ;;
+  status)
+    read -r rise set < <(sun_times)
+    override=false; [[ -f "$OVERRIDE_FILE" ]] && override=true
+    printf '{"mode":"%s","sunrise":"%s","sunset":"%s","override":%s,"wallpaper":"%s"}\n' \
+      "$(current_mode)" "$(fmt "$rise")" "$(fmt "$set")" "$override" "$(readlink "$RCA_STATE/wallpaper")"
+    ;;
+  daemon)
+    exec 9>"$RCA_STATE/theme-daemon.lock"
+    flock -n 9 || exit 0
+    "$0" auto
+    while sleep 60; do "$0" auto; done
+    ;;
+  *)
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac

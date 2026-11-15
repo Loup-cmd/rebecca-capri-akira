@@ -1,0 +1,7 @@
+# Rebecca CRT — warm tint over kitty's built-in CRT shader.
+# TINT.rgb multiplies the image, TINT.a is the blend strength (0..1).
+var float4 TINT = float4(1.0, 0.78, 0.62, 0.28)
+
+startgroup
+    shaders crt
+endgroup

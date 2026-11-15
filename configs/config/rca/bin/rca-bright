@@ -1,0 +1,27 @@
+#!/bin/bash
+# rca-bright up|down [pas] | set <pct> | kbd up|down|cycle
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+step="${2:-5}"
+show() {
+  local pct
+  pct="$(brightnessctl -m ${1:+-d "$1"} 2>/dev/null | cut -d, -f4 | tr -d '%')"
+  rca_qs osd "${2:-brightness}" "${pct:-0}"
+}
+kbd_device() { brightnessctl -l -m -c leds 2>/dev/null | cut -d, -f1 | grep -m1 -i kbd; }
+case "${1:-}" in
+  up) brightnessctl -e4 -n2 set "${step}%+" >/dev/null; show ;;
+  down) brightnessctl -e4 -n2 set "${step}%-" >/dev/null; show ;;
+  set) brightnessctl -n2 set "${2:-50}%" >/dev/null; show ;;
+  kbd)
+    dev="$(kbd_device)"; [[ -n "$dev" ]] || exit 0
+    case "${2:-cycle}" in
+      up) brightnessctl -d "$dev" set 1+ >/dev/null ;;
+      down) brightnessctl -d "$dev" set 1- >/dev/null ;;
+      cycle)
+        cur="$(brightnessctl -d "$dev" get)"; max="$(brightnessctl -d "$dev" max)"
+        brightnessctl -d "$dev" set $(( cur >= max ? 0 : cur + 1 )) >/dev/null ;;
+    esac
+    show "$dev" keyboard
+    ;;
+  *) echo "usage: rca-bright up|down [pas] | set <pct> | kbd up|down|cycle" >&2; exit 1 ;;
+esac

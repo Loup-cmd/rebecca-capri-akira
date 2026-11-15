@@ -1,0 +1,12 @@
+#!/bin/bash
+# rca-tui <nom> <commande…> — TUI dans un kitty flottant (classe rca.<nom>),
+# ou remet au premier plan celui déjà ouvert.
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+name="$1"; shift
+class="rca.$name"
+addr="$(hyprctl clients -j | jq -r --arg c "$class" '[.[] | select(.class == $c)][0].address // empty')"
+if [[ -n "$addr" ]]; then
+  hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+  exit 0
+fi
+rca_launch kitty --class "$class" -e "$@"

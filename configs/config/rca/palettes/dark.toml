@@ -1,0 +1,39 @@
+mode = "dark"
+
+# Rebecca Dark — coffee-ink night, signal red-orange, warm cream.
+accent = "#F74D13"
+selection = "#593322"
+muted = "#A08A70"
+
+background = "#1B140E"
+dark_background = "#15100B"
+darker_background = "#0F0B07"
+lighter_background = "#2B2116"
+
+foreground = "#F5EADB"
+dark_foreground = "#9C8A73"
+light_foreground = "#D8C8B2"
+bright_foreground = "#FFF9F0"
+
+hyprland_active_border = "rgba(F74D13ee) rgba(F5EADBee) 45deg"
+hyprland_inactive_border = "rgba(F5EADB55)"
+
+red = "#F25C3A"
+yellow = "#D9A441"
+orange = "#F74D13"
+green = "#7FA86B"
+cyan = "#57A6A8"
+blue = "#6E96C9"
+magenta = "#C96A85"
+brown = "#A97C50"
+
+bright_red = "#FF7A4D"
+bright_yellow = "#F0BC5E"
+bright_green = "#9BC487"
+bright_cyan = "#79C4C6"
+bright_blue = "#8FB3E0"
+bright_magenta = "#E08AA3"
+
+# Capri (l'IA de l'image) : code couleur des interfaces techniques.
+capri_green = "#0DE95B"
+capri_magenta = "#EF034C"

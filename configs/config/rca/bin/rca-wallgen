@@ -1,0 +1,209 @@
+#!/usr/bin/python3
+"""rca-wallgen [largeur hauteur] — fonds d'écran maison, dans les deux palettes.
+
+Trois dessins vectoriels (rendus par rsvg-convert) :
+  30-mire     mire de réglage d'un vieux téléviseur
+  10-neon     enseigne au néon, soleil rayé et grille d'horizon
+  20-atelier  salle des machines : engrenages, tuyaux et manomètres de laiton
+Sortie : ~/.config/rca/wallpapers/{light,dark}/. Relancer après un changement de palette.
+"""
+import math, os, random, re, subprocess, sys
+
+HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+W, H = (int(sys.argv[1]), int(sys.argv[2])) if len(sys.argv) > 2 else (1920, 1080)
+MONO, SERIF = "ShureTechMono Nerd Font, monospace", "IBM Plex Serif, serif"
+
+
+def palette(mode):
+    c = {}
+    for line in open(f"{HOME}/palettes/{mode}.toml"):
+        m = re.match(r'\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6})"', line)
+        if m:
+            c[m.group(1)] = m.group(2)
+    c["mode"] = mode
+    c["brass"] = mix(c["yellow"], c["brown"], 0.42)
+    c["ink"] = "#120D09"
+    return c
+
+
+def mix(a, b, t):
+    pa, pb = [int(a[i:i + 2], 16) for i in (1, 3, 5)], [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x * (1 - t) + y * t) for x, y in zip(pa, pb))
+
+
+def rect(x, y, w, h, fill, extra=""):
+    return f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" fill="{fill}" {extra}/>'
+
+
+def line(x1, y1, x2, y2, stroke, w=1, extra=""):
+    return f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{stroke}" stroke-width="{w}" {extra}/>'
+
+
+def circle(cx, cy, r, fill="none", stroke="none", w=1, extra=""):
+    return f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="{fill}" stroke="{stroke}" stroke-width="{w}" {extra}/>'
+
+
+def text(x, y, s, size, fill, family=MONO, anchor="middle", extra=""):
+    return f'<text x="{x:.1f}" y="{y:.1f}" font-family="{family}" font-size="{size}" fill="{fill}" text-anchor="{anchor}" {extra}>{s}</text>'
+
+
+def svg(body, defs=""):
+    return f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 1920 1080"><defs>{defs}</defs>{body}</svg>'
+
+
+GLOW = '<filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>' \
+       '<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"/></filter>'
+
+
+def mire(c):
+    bg, fg = c["darker_background"], c["foreground"]
+    o = [rect(0, 0, 1920, 1080, bg)]
+    for x in range(0, 1921, 80):
+        o.append(line(x, 0, x, 1080, fg, 1, 'opacity="0.10"'))
+    for y in range(20, 1081, 80):
+        o.append(line(0, y, 1920, y, fg, 1, 'opacity="0.10"'))
+    cx, cy, R = 960, 540, 470
+    bars = [c["bright_foreground"], c["yellow"], c["cyan"], c["green"], c["magenta"], c["accent"], c["blue"]]
+    g = []
+    bw = 2 * R / len(bars)
+    for i, col in enumerate(bars):
+        g.append(rect(cx - R + i * bw, cy - R, bw + 1, R - 60, col))
+    g.append(rect(cx - R, cy - 60, 2 * R, 110, c["ink"]))
+    g.append(text(cx, cy + 12, "REBECCA · CAPRI · AKIRA", 46, c["accent"], extra='letter-spacing="8"'))
+    for i in range(8):
+        g.append(rect(cx - R + i * 2 * R / 8, cy + 50, 2 * R / 8 + 1, 110, mix(c["ink"], "#FFF9F0", i / 7)))
+    x = cx - R
+    g.append(rect(cx - R, cy + 160, 2 * R, 150, c["ink"]))
+    for wdt in (2, 3, 4, 6, 9, 14):
+        for _ in range(int(150 / (2 * wdt))):
+            g.append(rect(x, cy + 160, wdt, 150, "#FFF9F0"))
+            x += 2 * wdt
+        x += 8
+    g.append(rect(cx - R, cy + 310, 2 * R, R, c["accent"]))
+    g.append(text(cx, cy + 372, "R.C.A — TÉLÉVISION", 34, c["ink"], extra='letter-spacing="10" font-weight="bold"'))
+    o.append(f'<clipPath id="disc"><circle cx="{cx}" cy="{cy}" r="{R}"/></clipPath><g clip-path="url(#disc)">{"".join(g)}</g>')
+    o.append(circle(cx, cy, R, stroke=fg, w=4))
+    o.append(circle(cx, cy, R + 14, stroke=c["brass"], w=2))
+    for sx, sy in ((180, 170), (1740, 170), (180, 910), (1740, 910)):
+        o += [circle(sx, sy, 96, stroke=fg, w=2), circle(sx, sy, 60, stroke=c["accent"], w=2),
+              line(sx - 110, sy, sx + 110, sy, fg), line(sx, sy - 110, sx, sy + 110, fg)]
+    o += [line(cx - 40, cy - R - 40, cx + 40, cy - R - 40, c["accent"], 3),
+          text(180, 60, "CH 00", 30, c["accent"], extra='letter-spacing="6"'),
+          text(1740, 60, "625 LIGNES", 22, fg, extra='letter-spacing="5" opacity="0.8"'),
+          text(960, 1052, "MIRE DE RÉGLAGE  —  NE PAS ÉTEINDRE LE POSTE", 20, fg, extra='letter-spacing="8" opacity="0.7"')]
+    return svg("".join(o))
+
+
+def neon(c):
+    rnd = random.Random(86)
+    dark = c["mode"] == "dark"
+    top, low = c["darker_background"], mix(c["dark_background"], c["magenta"], 0.28 if dark else 0.12)
+    hy = 660
+    defs = GLOW + f'<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{low}"/></linearGradient>' \
+                  f'<linearGradient id="sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{c["bright_yellow"]}"/><stop offset="0.55" stop-color="{c["accent"]}"/><stop offset="1" stop-color="{c["magenta"]}"/></linearGradient>' \
+                  f'<clipPath id="above"><rect x="0" y="0" width="1920" height="{hy}"/></clipPath>'
+    o = [rect(0, 0, 1920, 1080, "url(#sky)")]
+    for _ in range(140):
+        o.append(circle(rnd.uniform(0, 1920), rnd.uniform(0, hy - 120), rnd.choice((1, 1, 1.6)), fill=c["foreground"], extra=f'opacity="{rnd.uniform(0.15, 0.7):.2f}"'))
+    sun = [circle(960, hy - 60, 280, fill="url(#sun)")]
+    for i in range(9):
+        y = hy - 250 + i * 34 + i * i * 1.6
+        sun.append(rect(600, y, 720, 4 + i * 3.2, low))
+    o.append(f'<g clip-path="url(#above)"><g filter="url(#glow)" opacity="0.55">{sun[0]}</g>{"".join(sun)}</g>')
+    x = -20
+    while x < 1940:
+        w = rnd.randint(46, 120)
+        h = rnd.randint(60, 300) if abs(x + w / 2 - 960) > 330 else rnd.randint(20, 70)
+        o.append(rect(x, hy - h, w, h + 2, c["ink"] if dark else c["dark_foreground"]))
+        for _ in range(int(w * h / 900)):
+            o.append(rect(x + rnd.randint(4, max(5, w - 10)), hy - rnd.randint(8, max(9, h - 6)), 5, 7,
+                          rnd.choice((c["accent"], c["bright_yellow"], c["cyan"])), f'opacity="{rnd.uniform(0.35, 0.95):.2f}"'))
+        x += w + rnd.randint(0, 6)
+    o.append(rect(0, hy, 1920, 1080 - hy, c["ink"] if dark else c["darker_background"]))
+    grid = []
+    for i in range(1, 15):
+        y = hy + (i / 14) ** 2.2 * (1080 - hy)
+        grid.append(line(0, y, 1920, y, c["cyan"], 2))
+    for i in range(-24, 25):
+        grid.append(line(960 + i * 26, hy, 960 + i * 260, 1080, c["cyan"], 2))
+    g = "".join(grid)
+    o.append(f'<g filter="url(#glow)" opacity="0.8">{g}</g><g opacity="0.9">{g}</g>')
+    o.append(line(0, hy, 1920, hy, c["accent"], 4))
+    # Enseigne décalée à droite : le coin haut gauche reste libre pour l'horloge du bureau.
+    sign = text(1085, 190, "REBECCA", 150, "none", MONO, extra=f'stroke="{c["accent"]}" stroke-width="6" letter-spacing="20" stroke-linejoin="round"')
+    core = text(1085, 190, "REBECCA", 150, "none", MONO, extra=f'stroke="{c["bright_foreground"] if dark else c["lighter_background"]}" stroke-width="2" letter-spacing="20" opacity="0.85"')
+    o.append(f'<g filter="url(#glow)">{sign}</g>{sign}{core}')
+    tag = f'<rect x="945" y="228" width="280" height="58" rx="29" fill="none" stroke="{c["cyan"]}" stroke-width="4"/>' + \
+          text(1085, 267, "OUVERT 24H", 26, c["cyan"], extra='letter-spacing="6"')
+    o.append(f'<g filter="url(#glow)">{tag}</g>{tag}')
+    return svg("".join(o), defs)
+
+
+def gear(cx, cy, r, teeth, depth=0.14):
+    pts, step = [], 2 * math.pi / teeth
+    for i in range(teeth):
+        a = i * step
+        for da, rr in ((0.0, r * (1 - depth)), (0.14, r), (0.36, r), (0.5, r * (1 - depth))):
+            pts.append(f"{cx + math.cos(a + da * step) * rr:.1f},{cy + math.sin(a + da * step) * rr:.1f}")
+    return "M" + " L".join(pts) + "Z"
+
+
+def atelier(c):
+    dark = c["mode"] == "dark"
+    bg, brass, fg = c["darker_background"], c["brass"], c["foreground"]
+    hi, lo = mix(brass, "#FFF3D6", 0.45), mix(brass, "#000000", 0.55)
+    defs = GLOW + f'<linearGradient id="br" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{hi}"/><stop offset="0.5" stop-color="{brass}"/><stop offset="1" stop-color="{lo}"/></linearGradient>' \
+                  f'<radialGradient id="vg" cx="0.5" cy="0.5" r="0.75"><stop offset="0.5" stop-color="{bg}" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="{0.55 if dark else 0.18}"/></radialGradient>'
+    o = [rect(0, 0, 1920, 1080, bg)]
+    for x in range(0, 1921, 40):
+        o.append(line(x, 0, x, 1080, fg, 1, f'opacity="{0.10 if x % 200 == 0 else 0.04}"'))
+    for y in range(0, 1081, 40):
+        o.append(line(0, y, 1920, y, fg, 1, f'opacity="{0.10 if y % 200 == 0 else 0.04}"'))
+    # Tuyauterie.
+    for d in ("M-20 250 H520 Q560 250 560 290 V470", "M1940 820 H1330 Q1290 820 1290 780 V610", "M300 1100 V900 Q300 860 340 860 H700"):
+        o += [f'<path d="{d}" fill="none" stroke="{lo}" stroke-width="34"/>', f'<path d="{d}" fill="none" stroke="url(#br)" stroke-width="26"/>',
+              f'<path d="{d}" fill="none" stroke="{hi}" stroke-width="3" opacity="0.5" transform="translate(-6,-6)"/>']
+    for fx, fy, vert in ((200, 250, 0), (420, 250, 0), (560, 400, 1), (1700, 820, 0), (1480, 820, 0), (1290, 690, 1), (300, 980, 1), (560, 860, 0)):
+        w, h = (26, 56) if not vert else (56, 26)
+        o.append(rect(fx - w / 2, fy - h / 2, w, h, "url(#br)", f'stroke="{lo}" stroke-width="2" rx="3"'))
+        for k in (-1, 1):
+            o.append(circle(fx + (0 if not vert else k * 19), fy + (k * 19 if not vert else 0), 3.5, fill=lo))
+    # Train d'engrenages.
+    for gx, gy, r, n, rot in ((960, 560, 250, 28, 0), (1385, 395, 170, 19, 4), (640, 260, 120, 13, 9), (640, 820, 150, 17, 2), (1250, 880, 110, 12, 6)):
+        body = f'<path d="{gear(gx, gy, r, n)}" fill="{mix(bg, brass, 0.22)}" stroke="url(#br)" stroke-width="5" stroke-linejoin="round" transform="rotate({rot} {gx} {gy})"/>'
+        o.append(body)
+        o += [circle(gx, gy, r * 0.62, stroke=brass, w=3), circle(gx, gy, r * 0.2, fill="url(#br)", stroke=lo, w=3), circle(gx, gy, r * 0.07, fill=bg)]
+        for k in range(6):
+            a = k * math.pi / 3 + rot
+            o.append(line(gx + math.cos(a) * r * 0.2, gy + math.sin(a) * r * 0.2, gx + math.cos(a) * r * 0.62, gy + math.sin(a) * r * 0.62, brass, 7, 'stroke-linecap="round"'))
+            o.append(circle(gx + math.cos(a + 0.52) * r * 0.74, gy + math.sin(a + 0.52) * r * 0.74, max(4, r * 0.035), fill=brass))
+    # Manomètres.
+    for mx, my, r, val, lab in ((560, 560, 96, 0.35, "PRESSION"), (1290, 520, 84, 0.72, "VAPEUR"), (1640, 250, 120, 0.55, "TENSION")):
+        o += [circle(mx, my, r + 12, fill="url(#br)", stroke=lo, w=2), circle(mx, my, r, fill="#F3EBE2", stroke=lo, w=2)]
+        for k in range(13):
+            a = math.radians(-210 + k * 20)
+            o.append(line(mx + math.cos(a) * r * 0.78, my + math.sin(a) * r * 0.78, mx + math.cos(a) * r * 0.92, my + math.sin(a) * r * 0.92,
+                          c["red"] if k >= 10 else "#2B2116", 3 if k % 3 == 0 else 1.5))
+        a = math.radians(-210 + val * 240)
+        o += [line(mx, my, mx + math.cos(a) * r * 0.74, my + math.sin(a) * r * 0.74, c["accent"], 4, 'stroke-linecap="round"'),
+              circle(mx, my, r * 0.1, fill="url(#br)", stroke=lo, w=1.5), text(mx, my + r * 0.52, lab, r * 0.16, "#2B2116", SERIF, extra='letter-spacing="2" font-weight="bold"')]
+    # Lampe témoin et plaque du constructeur.
+    lamp = circle(1640, 520, 22, fill=c["accent"])
+    o += [f'<g filter="url(#glow)" opacity="0.9">{circle(1640, 520, 44, fill=c["accent"])}</g>', circle(1640, 520, 32, fill="url(#br)", stroke=lo, w=2), lamp]
+    o.append(rect(1380, 930, 420, 92, "url(#br)", f'stroke="{lo}" stroke-width="3" rx="6"'))
+    for px, py in ((1396, 946), (1784, 946), (1396, 1006), (1784, 1006)):
+        o.append(circle(px, py, 5, fill=lo))
+    o += [text(1590, 972, "R · C · A   WORKS", 30, "#1E160E", SERIF, extra='letter-spacing="6" font-weight="bold"'),
+          text(1590, 1004, "REBECCA CAPRI AKIRA — Nº 86", 16, "#1E160E", SERIF, extra='letter-spacing="4"'),
+          line(120, 90, 440, 90, fg, 1, 'opacity="0.5"'), text(280, 78, "Ø 500 — ROUE MAÎTRESSE", 16, fg, extra='letter-spacing="3" opacity="0.6"'),
+          rect(0, 0, 1920, 1080, "url(#vg)")]
+    return svg("".join(o), defs)
+
+
+for mode in ("dark", "light"):
+    c = palette(mode)
+    out = f"{HOME}/wallpapers/{mode}"
+    os.makedirs(out, exist_ok=True)
+    for name, fn in (("10-neon", neon), ("20-atelier", atelier), ("30-mire", mire)):
+        subprocess.run(["rsvg-convert", "-o", f"{out}/{name}.png"], input=fn(c).encode(), check=True)
+        print(f"{mode}/{name}.png")

@@ -1,0 +1,90 @@
+#!/usr/bin/env lua
+-- rca-render <palette.toml> <modèle> <sortie>
+--
+-- Remplace dans le modèle :
+--   {{ clé }}               valeur de la palette (#RRGGBB)
+--   {{ clé_strip }}         sans le #            (RRGGBB)
+--   {{ clé_rgb }}           en décimal           (R,G,B)
+--   {{ mix a b 30% }}       mélange de a vers b  (#rrggbb, aussi _strip / _rgb)
+-- Les modèles d'Omarchy (MIT) utilisent la même syntaxe.
+
+local palette_path, template_path, output_path = arg[1], arg[2], arg[3]
+if not (palette_path and template_path and output_path) then
+  io.stderr:write("usage: rca-render <palette.toml> <modèle> <sortie>\n")
+  os.exit(2)
+end
+
+local values = {}
+for line in io.lines(palette_path) do
+  local key, value = line:match('^%s*([%w_]+)%s*=%s*"([^"]*)"')
+  if key then values[key] = value end
+end
+
+-- Clés dérivées attendues par les modèles.
+values.theme_type = values.mode or "dark"
+values.selection_background = values.selection_background or values.selection
+values.selection_foreground = values.selection_foreground or values.bright_foreground
+values.cursor = values.cursor or values.bright_foreground
+
+local function rgb(hex)
+  hex = hex:gsub("^#", "")
+  return tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
+end
+
+local function mix(a, b, amount)
+  local r1, g1, b1 = rgb(a)
+  local r2, g2, b2 = rgb(b)
+  local t = math.max(0, math.min(1, amount))
+  local function m(x, y) return math.floor(x * (1 - t) + y * t + 0.5) end
+  return string.format("#%02x%02x%02x", m(r1, r2), m(g1, g2), m(b1, b2))
+end
+
+local function format(value, suffix)
+  if not suffix or suffix == "" then return value end
+  if not value:match("^#%x%x%x%x%x%x") then return value end
+  if suffix == "strip" then return value:sub(2) end
+  if suffix == "rgb" then
+    local r, g, b = rgb(value)
+    return string.format("%d,%d,%d", r, g, b)
+  end
+  return value
+end
+
+local function resolve(token)
+  local kind, a, b, amount = token:match("^(mix[_%w]*)%s+([%w_]+)%s+([%w_]+)%s+([%d%.]+)%%?$")
+  if kind then
+    if not (values[a] and values[b]) then return nil end
+    local n = tonumber(amount)
+    if n > 1 then n = n / 100 end
+    return format(mix(values[a], values[b], n), kind:match("^mix_(%w+)$"))
+  end
+  if values[token] then return values[token] end
+  local base, suffix = token:match("^(.-)_(strip)$")
+  if not base then base, suffix = token:match("^(.-)_(rgb)$") end
+  if base and values[base] then return format(values[base], suffix) end
+  return nil
+end
+
+local input = assert(io.open(template_path, "r"))
+local text = input:read("a")
+input:close()
+
+local missing = {}
+text = text:gsub("{{%s*(.-)%s*}}", function(token)
+  local value = resolve(token)
+  if value == nil then
+    missing[#missing + 1] = token
+    return "{{ " .. token .. " }}"
+  end
+  return value
+end)
+
+local tmp = output_path .. ".tmp"
+local output = assert(io.open(tmp, "w"))
+output:write(text)
+output:close()
+os.rename(tmp, output_path)
+
+if #missing > 0 then
+  io.stderr:write("rca-render: " .. template_path .. " : clés inconnues : " .. table.concat(missing, ", ") .. "\n")
+end

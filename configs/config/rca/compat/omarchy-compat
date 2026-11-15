@@ -1,0 +1,51 @@
+#!/bin/bash
+# Remplaçants des commandes omarchy-* encore appelées par la keymap figée des
+# autres ricings (sekaipop…) une fois Omarchy désinstallé. Chaque nom de ce
+# dossier est un lien vers ce script ; il se rabat sur les scripts rca-*.
+bin="$(cd "$(dirname "$(readlink -f "$0")")/../bin" && pwd)"
+source "$bin/rca-lib.sh"
+name="$(basename "$0")"
+dsp() { hyprctl dispatch "$1" >/dev/null 2>&1; }
+
+case "$name" in
+  omarchy-launch-terminal) exec "$bin/rca-term" "$@" ;;
+  omarchy-launch-terminal-tmux) exec "$bin/rca-term" -- tmux new -A -s Work ;;
+  omarchy-launch-terminal-herdr) exec "$bin/rca-term" -- herdr ;;
+  omarchy-launch-browser) exec "$bin/rca-browser" "$@" ;;
+  omarchy-launch-webapp) exec "$bin/rca-webapp" "$1" ;;
+  omarchy-launch-or-focus-webapp) exec "$bin/rca-webapp" "$2" --focus "$1" ;;
+  omarchy-launch-nautilus) rca_launch nautilus --new-window ;;
+  omarchy-launch-nautilus-cwd) exec "$bin/rca-term" --files ;;
+  omarchy-launch-editor) exec "$bin/rca-term" --editor ;;
+  omarchy-launch-tui | omarchy-launch-or-focus-tui) exec "$bin/rca-tui" "$(basename "$1")" "$@" ;;
+  omarchy-launch-or-focus) exec "$bin/rca-focus" "$1" sh -c "$2" ;;
+  omarchy-launch-spotify) exec "$bin/rca-focus" '^[Ss]potify$' spotify ;;
+  omarchy-launch-signal) exec "$bin/rca-focus" '^signal$' signal-desktop ;;
+  omarchy-launch-1password) command -v 1password >/dev/null && rca_launch 1password || rca_notify "1Password" "Non installé." ;;
+  omarchy-capture-screenshot) exec "$bin/rca-capture" shot region ;;
+  omarchy-capture-text) exec "$bin/rca-capture" ocr ;;
+  omarchy-hyprland-window-pop) exec "$bin/rca-hypr" pop ;;
+  omarchy-hyprland-window-close-all) exec "$bin/rca-hypr" close-all ;;
+  omarchy-hyprland-window-tiled-fullscreen-toggle) exec "$bin/rca-hypr" tiled-fullscreen ;;
+  omarchy-hyprland-window-transparency-toggle) exec "$bin/rca-hypr" transparency ;;
+  omarchy-hyprland-window-gaps-toggle) exec "$bin/rca-hypr" gaps ;;
+  omarchy-hyprland-window-single-square-aspect-toggle) exec "$bin/rca-hypr" square ;;
+  omarchy-hyprland-window-width) exec "$bin/rca-hypr" width "$1" ;;
+  omarchy-hyprland-window-minimize) dsp 'hl.dsp.window.move({ workspace = "special:scratchpad", follow = false })' ;;
+  omarchy-hyprland-workspace-layout-toggle) [[ "${1:-}" == back ]] && exec "$bin/rca-hypr" layout prev || exec "$bin/rca-hypr" layout next ;;
+  omarchy-hyprland-monitor-scaling) exec "$bin/rca-hypr" scale "${1:-up}" ;;
+  omarchy-hyprland-monitor-internal) exec "$bin/rca-hypr" internal toggle ;;
+  omarchy-brightness-keyboard) exec "$bin/rca-bright" kbd "${1:-cycle}" ;;
+  omarchy-audio-output-switch) exec "$bin/rca-audio" next-output ;;
+  omarchy-dictation)
+    case "${1:-toggle}" in
+      start) superwhisper start ;;
+      stop) systemctl --user is-active --quiet superwhisper.service && superwhisper stop ;;
+      *) superwhisper record ;;
+    esac ;;
+  omarchy-notification-time) rca_notify -t 4000 "$(date '+%H:%M')" "$(date '+%A %-d %B %Y')" ;;
+  omarchy-notification-battery)
+    bat="$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -n1)"
+    [[ -n "$bat" ]] && rca_notify -t 4000 "Batterie $(cat "$bat/capacity")%" "$(cat "$bat/status")" ;;
+  *) ;;   # sans équivalent (incrustation webcam, pavé tactile, miroir d'écran…) : ne fait rien
+esac

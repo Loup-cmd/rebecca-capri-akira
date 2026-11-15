@@ -1,0 +1,39 @@
+mode = "light"
+
+# Rebecca x Akira — paper white, signal red-orange, warm ink.
+accent = "#F74D13"
+selection = "#F6D5C5"
+muted = "#8A7A63"
+
+background = "#FFFEFD"
+dark_background = "#F3EBE2"
+darker_background = "#E9DCCD"
+lighter_background = "#FFFFFF"
+
+foreground = "#3A2E1F"
+dark_foreground = "#6B5B45"
+light_foreground = "#4F4029"
+bright_foreground = "#1E160E"
+
+hyprland_active_border = "rgba(F74D13ee) rgba(4F4029ee) 45deg"
+hyprland_inactive_border = "rgba(4F402966)"
+
+red = "#C7361A"
+yellow = "#8A6A12"
+orange = "#E86A2C"
+green = "#3F7A34"
+cyan = "#20707A"
+blue = "#2F5C8A"
+magenta = "#A23A5A"
+brown = "#7A5230"
+
+bright_red = "#F74D13"
+bright_yellow = "#B07A1A"
+bright_green = "#5A9A4A"
+bright_cyan = "#3A9A9A"
+bright_blue = "#4A7AB0"
+bright_magenta = "#C25570"
+
+# Capri (l'IA de l'image) : code couleur des interfaces techniques.
+capri_green = "#08A843"
+capri_magenta = "#D10343"

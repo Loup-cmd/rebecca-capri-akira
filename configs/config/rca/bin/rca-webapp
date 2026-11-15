@@ -1,0 +1,24 @@
+#!/bin/bash
+# rca-webapp <url> [--focus <nom>] — site en fenêtre d'application (Chromium).
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+
+url="$1"; shift
+name=""
+[[ "${1:-}" == --focus ]] && name="${2:-}"
+
+browser=""
+for b in chromium google-chrome-stable brave helium-browser; do
+  command -v "$b" >/dev/null && { browser="$b"; break; }
+done
+[[ -n "$browser" ]] || { rca_notify -u critical "Web apps" "Il faut un navigateur Chromium (chromium)."; exit 1; }
+
+if [[ -n "$name" ]]; then
+  # Classe de fenêtre Chromium d'une app : <navigateur>-<domaine>__<chemin>-Default
+  host="$(sed -E 's#^[a-z]+://([^/]+).*#\1#' <<<"$url")"
+  addr="$(hyprctl clients -j | jq -r --arg h "$host" '[.[] | select(.class | contains($h))][0].address // empty')"
+  if [[ -n "$addr" ]]; then
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+    exit 0
+  fi
+fi
+rca_launch "$browser" --app="$url"

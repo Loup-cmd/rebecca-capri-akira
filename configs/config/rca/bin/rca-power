@@ -1,0 +1,15 @@
+#!/bin/bash
+# rca-power lock|suspend|hibernate|logout|reboot|poweroff
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+case "${1:-}" in
+  lock) exec "$RCA_BIN/rca-lock" ;;
+  suspend) systemctl suspend ;;
+  hibernate) systemctl hibernate ;;
+  logout)
+    if command -v uwsm >/dev/null && uwsm check is-active >/dev/null 2>&1; then uwsm stop
+    else hyprctl dispatch 'hl.dsp.exit()'; fi
+    ;;
+  reboot) systemctl reboot ;;
+  poweroff) systemctl poweroff ;;
+  *) echo "usage: rca-power lock|suspend|hibernate|logout|reboot|poweroff" >&2; exit 1 ;;
+esac

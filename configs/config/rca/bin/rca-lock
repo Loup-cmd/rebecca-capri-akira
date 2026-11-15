@@ -1,0 +1,4 @@
+#!/bin/bash
+# Verrouille avec le shell Quickshell ; hyprlock prend le relais s'il ne répond pas.
+qs -c rca ipc call lock lock >/dev/null 2>&1 && exit 0
+pidof hyprlock >/dev/null || exec hyprlock

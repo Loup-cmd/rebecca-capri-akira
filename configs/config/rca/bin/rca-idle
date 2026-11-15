@@ -1,0 +1,18 @@
+#!/bin/bash
+# rca-idle toggle | status | run <commande…>
+# « run » n'exécute la commande que si le verrouillage auto est actif.
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+flag="$RCA_STATE/stay-awake"
+case "${1:-status}" in
+  toggle)
+    if [[ -f "$flag" ]]; then
+      rm -f "$flag"; rca_qs status idle true
+      rca_notify -t 1500 "Verrouillage auto" "Activé"
+    else
+      touch "$flag"; rca_qs status idle false
+      rca_notify -t 1500 "Verrouillage auto" "Désactivé — l'écran reste allumé"
+    fi
+    ;;
+  status) [[ -f "$flag" ]] && echo off || echo on ;;
+  run) shift; [[ -f "$flag" ]] && exit 0; exec "$@" ;;
+esac

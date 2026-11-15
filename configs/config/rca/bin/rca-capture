@@ -1,0 +1,117 @@
+#!/bin/bash
+# rca-capture — captures d'écran, enregistrement, OCR, pipette.
+#   rca-capture shot [region|window|screen]   capture → fichier + presse-papiers
+#   rca-capture record [toggle|region|screen|stop]
+#   rca-capture ocr                           texte d'une zone → presse-papiers
+#   rca-capture color                         couleur sous le curseur → presse-papiers
+source "$(dirname "$(readlink -f "$0")")/rca-lib.sh"
+set -uo pipefail
+
+shots="$(rca_setting screenshots_dir "$HOME/Pictures/Screenshots")"
+videos="$(rca_setting recordings_dir "$HOME/Videos/Recordings")"
+mkdir -p "$shots" "$videos"
+stamp() { date +%Y-%m-%d_%H-%M-%S; }
+
+# Géométrie au format "X,Y WxH" (celui de grim -g et de slurp).
+geometry() {
+  case "$1" in
+    region)
+      # Les fenêtres visibles sont proposées comme cibles de clic.
+      hyprctl clients -j | jq -r --argjson ws "$(hyprctl monitors -j | jq '[.[].activeWorkspace.id]')" \
+        '.[] | select(.workspace.id as $w | $ws | index($w)) | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"' \
+        | slurp -d -b '#00000055' -c '#F74D13ff' -s '#F74D1322' -w 2
+      ;;
+    window)
+      hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'
+      ;;
+    screen)
+      hyprctl monitors -j | jq -r '.[] | select(.focused) | "\(.x),\(.y) \((.width / .scale) | floor)x\((.height / .scale) | floor)"'
+      ;;
+  esac
+}
+
+shot() {
+  local mode="${1:-region}" geo file action
+  geo="$(geometry "$mode")" || exit 0
+  [[ -n "$geo" ]] || exit 0
+  file="$shots/capture_$(stamp).png"
+  grim -g "$geo" "$file" || exit 1
+  wl-copy --type image/png < "$file"
+  (
+    action="$(notify-send -a "Capture" -i "$file" -A annotate=Annoter -A open=Dossier \
+      "Capture copiée" "$(basename "$file")" 2>/dev/null)"
+    case "$action" in
+      annotate) swappy -f "$file" -o "$file" ;;
+      open) rca_launch nautilus "$shots" ;;
+    esac
+  ) &
+}
+
+recording_pid() { pgrep -f '^gpu-screen-recorder' | head -n1; }
+
+record_stop() {
+  local pid
+  pid="$(recording_pid)" || true
+  [[ -n "$pid" ]] || return 1
+  kill -INT "$pid"
+  rca_qs status recording false
+  local last
+  last="$(cat "$RCA_STATE/recording" 2>/dev/null)"
+  rm -f "$RCA_STATE/recording"
+  (
+    action="$(notify-send -a "Enregistrement" -A open=Ouvrir -A folder=Dossier \
+      "Enregistrement terminé" "$(basename "$last")" 2>/dev/null)"
+    case "$action" in
+      open) rca_launch xdg-open "$last" ;;
+      folder) rca_launch nautilus "$videos" ;;
+    esac
+  ) &
+  return 0
+}
+
+record_start() {
+  local mode="${1:-region}" geo file args
+  file="$videos/enregistrement_$(stamp).mp4"
+  if [[ "$mode" == region ]]; then
+    geo="$(geometry region)" || exit 0
+    [[ -n "$geo" ]] || exit 0
+    # slurp : "X,Y WxH"  →  gpu-screen-recorder : "WxH+X+Y"
+    local xy="${geo%% *}" wh="${geo##* }"
+    args=(-w region -region "${wh}+${xy%,*}+${xy#*,}")
+  else
+    args=(-w "$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')")
+  fi
+  echo "$file" > "$RCA_STATE/recording"
+  setsid gpu-screen-recorder "${args[@]}" -f 60 -k h264 -a default_output -ac opus -o "$file" \
+    >/dev/null 2>"$RCA_STATE/recording.log" &
+  rca_qs status recording true
+}
+
+case "${1:-shot}" in
+  shot) shot "${2:-region}" ;;
+  record)
+    case "${2:-toggle}" in
+      stop) record_stop ;;
+      toggle) record_stop || rca_qs menu open record || record_start region ;;
+      region|screen) record_stop || record_start "$2" ;;
+    esac
+    ;;
+  ocr)
+    command -v tesseract >/dev/null || { rca_notify "OCR" "tesseract n'est pas installé."; exit 1; }
+    geo="$(geometry region)" || exit 0
+    langs="eng"
+    tesseract --list-langs 2>/dev/null | grep -qx fra && langs="fra+eng"
+    text="$(grim -g "$geo" - | tesseract stdin stdout -l "$langs" 2>/dev/null)"
+    printf '%s' "$text" | wl-copy
+    rca_notify -t 2500 "Texte copié" "$(head -c 120 <<<"$text")"
+    ;;
+  color)
+    pkill hyprpicker && exit 0
+    color="$(hyprpicker -a -f hex 2>/dev/null)"
+    [[ -n "$color" ]] && rca_notify -t 2500 "Couleur copiée" "$color"
+    ;;
+  *)
+    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+    exit 1
+    ;;
+esac
