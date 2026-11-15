@@ -34,6 +34,7 @@ PanelWindow {
     property var clips: []
     property var emojis: []
     property var binds: []
+    property var ricings: []
     property var usage: ({})
 
     readonly property var effective: {
@@ -58,6 +59,7 @@ PanelWindow {
         case "web": return ["Recherche", ""];
         case "reminder": return ["Rappel", ""];
         case "keys": return ["Raccourcis", ""];
+        case "ricings": return ["Ricings", ""];
         default: return ["Lancer", ""];
         }
     }
@@ -96,6 +98,7 @@ PanelWindow {
         if (mode === "clipboard" && !clipProc.running) clipProc.running = true;
         if ((mode === "emoji" || effective.mode === "emoji") && emojis.length === 0) emojiFile.reload();
         if (mode === "keys" && !bindsProc.running) bindsProc.running = true;
+        if (mode === "ricings" && !ricingsProc.running) ricingsProc.running = true;
     }
 
     function refresh() {
@@ -142,6 +145,11 @@ PanelWindow {
                 sub: m ? "Entrée : programmer" : "Délai : 45s, 10m, 1h30m ou une heure HH:MM", remind: m ? [m[1], m[2]] : null }];
             break;
         }
+        case "ricings":
+            list = ricings.filter(r => !q || Menus.score(r.name, q) > 0).map(r => ({
+                glyph: r.current ? "󰄬" : "󰏘", label: r.name, sub: r.current ? "Actif" : r.desc, ricing: r.name, current: r.current
+            }));
+            break;
         case "keys":
             list = binds.filter(b => !q || Menus.score(b.desc + " " + b.keys, q) > 0).map(b => ({ glyph: "󰌌", label: b.desc, sub: "", keys: b.keys }));
             break;
@@ -175,6 +183,10 @@ PanelWindow {
             else Ui.run(item.run);
         } else if (item.web !== undefined) {
             Ui.script("rca-browser", "'https://duckduckgo.com/?q=" + encodeURIComponent(item.web) + "'");
+        } else if (item.ricing) {
+            if (item.current) return;
+            // Lancé hors du shell : la bascule le remplace.
+            Ui.run("setsid ricing switch '" + item.ricing.replace(/'/g, "'\\''") + "' >/dev/null 2>&1 &");
         } else if (item.remind) {
             Quickshell.execDetached([Theme.bin + "/rca-reminder", "set", item.remind[0], item.remind[1]]);
         } else if (item.script) {
@@ -200,6 +212,19 @@ PanelWindow {
     onClipsChanged: refresh()
     onEmojisChanged: refresh()
     onBindsChanged: refresh()
+    onRicingsChanged: refresh()
+
+    // Ricings hypr-switch, sauf ceux marqués hidden=true (default).
+    Process {
+        id: ricingsProc
+        command: ["sh", "-c", "s=\"$HOME/.hypr-switch\"; cur=$(cat \"$s/.current_shell\" 2>/dev/null); for d in \"$s\"/shells/*/; do n=$(basename \"$d\"); c=\"$d/ricing.conf\"; [ \"$(sed -n 's/^hidden=//p' \"$c\" 2>/dev/null | tail -n1)\" = true ] && [ \"$n\" != \"$cur\" ] && continue; printf '%s\\t%s\\t%s\\n' \"$n\" \"$([ \"$n\" = \"$cur\" ] && echo 1)\" \"$(sed -n 's/^description=//p' \"$c\" 2>/dev/null | tail -n1 | cut -c1-90)\"; done"]
+        stdout: StdioCollector {
+            onStreamFinished: root.ricings = text.split("\n").filter(l => l).map(l => {
+                const f = l.split("\t");
+                return { name: f[0], current: f[1] === "1", desc: f[2] || "" };
+            }).sort((a, b) => (b.current - a.current) || a.name.localeCompare(b.name))
+        }
+    }
     Component.onCompleted: {
         load();
         refresh();

@@ -16,6 +16,7 @@ function items(name) {
             { glyph: "󰞅", label: "Émojis", sub: "Copier et insérer", mode: "emoji" },
             { glyph: "󰀠", label: "Rappel", sub: "Programmer une alerte", mode: "reminder" },
             { glyph: "󰌌", label: "Raccourcis", sub: "Tous les raccourcis clavier", mode: "keys" },
+            { glyph: "󰸌", label: "Ricings", sub: "Changer d'interface (hypr-switch)", mode: "ricings" },
             { glyph: "󰒔", label: "Partager", sub: "LocalSend", menu: "share" },
             { glyph: "󰚰", label: "Mettre à jour", sub: "Paquets Arch et AUR", script: "rca-update run" },
             { glyph: "󰐥", label: "Système", sub: "Verrou, veille, redémarrage", menu: "system" }

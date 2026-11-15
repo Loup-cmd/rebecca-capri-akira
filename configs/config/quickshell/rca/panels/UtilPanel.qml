@@ -13,7 +13,8 @@ ColumnLayout {
             { g: "󰀻", l: "Applications", launcher: "apps" },
             { g: "󰅍", l: "Presse-papiers", launcher: "clipboard" },
             { g: "󰞅", l: "Émojis", launcher: "emoji" },
-            { g: "󰌌", l: "Raccourcis", launcher: "keys" } ] },
+            { g: "󰌌", l: "Raccourcis", launcher: "keys" },
+            { g: "󰸌", l: "Ricings", launcher: "ricings" } ] },
         { title: "Réglages", items: [
             { g: "󰒓", l: "Contrôle", panel: "control" },
             { g: "󰕾", l: "Audio", panel: "audio" },

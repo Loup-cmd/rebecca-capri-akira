@@ -352,6 +352,10 @@ if todo 7; then
     sudo pacman -Sy
     have omarchy-keyring && sudo pacman -R --noconfirm omarchy-keyring
   fi
+  if grep -q '^ID=omarchy' /etc/os-release 2>/dev/null && act "identité du système : Arch Linux (/etc/os-release)"; then
+    sudo cp -a /etc/os-release /etc/os-release.omarchy.bak
+    sudo ln -sfn ../usr/lib/os-release /etc/os-release
+  fi
   mark 7
   printf '\n%sTerminé : Arch + Rebecca-Capri-Akira, sans Omarchy.%s\n' "$O" "$N"
   info "Paquets venus du dépôt Omarchy, désormais sans mises à jour : pacman -Qm"
