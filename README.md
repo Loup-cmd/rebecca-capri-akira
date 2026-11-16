@@ -26,8 +26,11 @@ d'*Akira*.**
   Il ne se replie jamais tout seul.
 - **Un seul processus Quickshell** pour toute l'interface : panneaux (son, réseau, Bluetooth,
   affichage, énergie, calendrier, météo, système, notifications, rappels, fonds), lanceur
-  (applis, menus, presse-papiers, émojis, calcul, commandes, raccourcis), notifications,
-  verrouillage, agent polkit. Les panneaux ne sont chargés qu'à l'ouverture.
+  (applis, menus, presse-papiers, émojis, calcul, commandes, raccourcis, ricings),
+  notifications, verrouillage, agent polkit. Les panneaux ne sont chargés qu'à l'ouverture.
+- **Sélecteur de ricings** dans la palette : `ricing switch` sans argument ouvre le mode
+  « Ricings » (rofi reste le secours). `default`, dont l'interface était Omarchy, est masqué
+  par `hidden=true` et n'est plus proposé.
 - **Fenêtres en biseau** (`rounding_power = 1`), marges minimales, animations d'allumage de
   tube et défilement vertical des espaces.
 - **Raccourcis d'Omarchy** réécrits en Lua, AZERTY compris (codes physiques).
