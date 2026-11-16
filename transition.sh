@@ -359,8 +359,9 @@ if todo 7; then
   mark 7
   printf '\n%sTerminé : Arch + Rebecca-Capri-Akira, sans Omarchy.%s\n' "$O" "$N"
   info "Paquets venus du dépôt Omarchy, désormais sans mises à jour : pacman -Qm"
-  info "Ne bascule plus sur « default » (son interface était Omarchy). sekaipop reste utilisable."
-  info "Restes sans effet, à supprimer quand tu veux : ~/.local/state/omarchy, ~/.local/share/omarchy, paquet sddm."
+  info "« default » reste propriétaire des configs partagées ; il est masqué du sélecteur (hidden=true)."
+  info "sekaipop reste utilisable. Reste facultatif : le paquet sddm, que greetd remplace."
+  info "Drop-ins mkinitcpio et défauts Limine : gardés, ils portent le déverrouillage LUKS (voir MIGRATION.md)."
 else
   info "Transition déjà terminée."
 fi
